@@ -12,15 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Go 1.x
-        uses: actions/setup-go@v2
-        with:
-          go-version: ^1.16
-
       - name: Compare latest tags and set variables
         run: |
-          upstreamLatestTag=$(curl -sSL --connect-timeout 5 -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/v2fly/domain-list-community/releases/latest | grep "tag_name" | cut -d\" -f4)
-          thisLatestTag=$(curl -sSL --connect-timeout 5 -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/releases/latest | grep "tag_name" | cut -d\" -f4)
+          upstreamLatestTag=$(curl -sSL --connect-timeout 5 --retry 5 -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/v2fly/domain-list-community/releases/latest | grep "tag_name" | cut -d\" -f4)
+          thisLatestTag=$(curl -sSL --connect-timeout 5 --retry 5 -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${{ github.repository }}/releases/latest | grep "tag_name" | cut -d\" -f4)
           if [[ $upstreamLatestTag != $thisLatestTag ]]; then
             echo "NeedToSync=true" >> $GITHUB_ENV
           fi
@@ -29,12 +24,18 @@ jobs:
         shell: bash
 
       - name: Checkout codebase
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         if: ${{ env.NeedToSync }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        if: ${{ env.NeedToSync }}
+        with:
+          go-version-file: ./go.mod
 
       - name: Checkout v2fly/domain-list-community
         if: ${{ env.NeedToSync }}
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: v2fly/domain-list-community
           path: domain-list-community
@@ -69,36 +70,16 @@ jobs:
           git remote add publish "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f publish release
 
-      - name: Create a release
+      - name: Release and upload assets
         if: ${{ env.NeedToSync }}
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
+          name: ${{ env.RELEASE_NAME }}
           tag_name: ${{ env.TAG_NAME }}
-          release_name: ${{ env.RELEASE_NAME }}
           draft: false
           prerelease: false
-
-      - name: Upload geosite.dat
-        if: ${{ env.NeedToSync }}
-        uses: actions/upload-release-asset@v1
+          files: |
+            ./publish/geosite.dat
+            ./publish/geosite.dat.sha256sum
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./publish/geosite.dat
-          asset_name: geosite.dat
-          asset_content_type: application/octet-stream
-
-      - name: Upload geosite.dat sha256sum
-        if: ${{ env.NeedToSync }}
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./publish/geosite.dat.sha256sum
-          asset_name: geosite.dat.sha256sum
-          asset_content_type: text/plain
